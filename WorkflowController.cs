@@ -41,27 +41,28 @@ public class WorkflowController(IWorkflowBuilderFactory workflowBuilderFactory, 
     {
         var workflow = await LoadWorkflow();
         var result = await workflowRunner.RunAsync(workflow);
+        
+        var instanceId = await GetDatabaseInstanceId(DefinitionId);
 
         if (result.WorkflowState.Incidents.Count == 0)
         {
             // as long as initial state for env variable `FaultWorkflow` has value `1`,
             // this block should never be hit, but was useful in initial setup testing 
-            var bookmark = result.WorkflowState.Bookmarks.FirstOrDefault(x => x.ActivityId == "Resume");
+            // var bookmark = result.WorkflowState.Bookmarks.FirstOrDefault(x => x.ActivityId == "Resume");
 
             // Resume workflow.
-            var runOptions = new RunWorkflowOptions { BookmarkId = bookmark!.Id };
-            var resumeResult = await workflowRunner.RunAsync(workflow, result.WorkflowState, runOptions);
-        
-            return Results.Ok($"Workflow Status: {resumeResult.WorkflowState.Status}, SubStatus: {resumeResult.WorkflowState.SubStatus}");
+            // var runOptions = new RunWorkflowOptions { BookmarkId = bookmark!.Id };
+            // var resumeResult = await workflowRunner.RunAsync(workflow, result.WorkflowState, runOptions);
+            
+            return Results.Ok($"Workflow Instance: {instanceId}, Workflow Status: {result.WorkflowState.Status}, SubStatus: {result.WorkflowState.SubStatus}");
         }
         
         // we have an error, so first set the env variable so next run of `FaultedEvent` will not raise exception
         Environment.SetEnvironmentVariable(Constants.FaultWorkflowEnvVar, "0");
 
         // now run alteration to schedule activity from faulted activity
-        var instanceId = await GetDatabaseInstanceId(DefinitionId);
         var faultedActivityId = result.WorkflowState.Incidents.First().ActivityId;
-        var faultedActivityInstanceId = await GetFaultedActivityInstanceIdAsync(instanceId, faultedActivityId);
+        var faultedActivityInstanceId = await GetMostRecentActivityInstanceIdAsync(instanceId, faultedActivityId);
         var alterations = new List<IAlteration>
         {
             // it's also possible to pass the `ActivityId`, but in Elsa v3.1.1 this caused ActivityExecutionContext hierarchy to be incorrect, post alteration.
@@ -83,7 +84,7 @@ public class WorkflowController(IWorkflowBuilderFactory workflowBuilderFactory, 
     public async Task<IResult> ResumeWorkflowFromBookmark()
     {
         var instanceId = await GetDatabaseInstanceId(DefinitionId);
-        var activityInstanceId = await GetFaultedActivityInstanceIdAsync(instanceId, Constants.FaultingEventActivityId);
+        var activityInstanceId = await GetMostRecentActivityInstanceIdAsync(instanceId, Constants.FaultingEventActivityId);
         var bookmarkId = await GetMostRecentBookmarkId(instanceId, activityInstanceId!);
         var bookmarkFilter = new BookmarkFilter { BookmarkId = bookmarkId, WorkflowInstanceId = instanceId };
         var resumeBookmarkResult = await bookmarkResumer.ResumeAsync(bookmarkFilter);
@@ -105,15 +106,14 @@ public class WorkflowController(IWorkflowBuilderFactory workflowBuilderFactory, 
         return matches.First().Id;
     }
     
-    private async Task<string?> GetFaultedActivityInstanceIdAsync(string workflowInstanceId, string activityId)
+    private async Task<string?> GetMostRecentActivityInstanceIdAsync(string workflowInstanceId, string activityId)
     {
         // find the activityInstanceId from the `WorkflowExecutionLogRecords` table
         var sort = new WorkflowExecutionLogRecordOrder<DateTimeOffset>(x => x.Timestamp,
             OrderDirection.Descending);
         var filter = new WorkflowExecutionLogRecordFilter
         {
-            WorkflowInstanceId = workflowInstanceId, ActivityId = activityId,
-            EventName = "Faulted"
+            WorkflowInstanceId = workflowInstanceId, ActivityId = activityId
         };
         var logRecord = await workflowExecutionLogStore.FindAsync(filter, sort, default);
         if (logRecord is null)

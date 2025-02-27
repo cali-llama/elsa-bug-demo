@@ -15,13 +15,14 @@ and after setting up a local folder to retain your data...
 
 ## Run Steps
 
-1. Run the `http` launch profile to start up the Elsa web server.
-2. Exercise the `http://localhost:5151/workflow/start` api endpoint. This will...
+1. Open `elsa-bug-demo.sln` solution file.
+2. Run the `http` launch profile to start up the Elsa web server.
+3. Exercise the `http://localhost:5151/workflow/start` api endpoint. This will...
     - This will trigger the workflow defined in `FaultingBookmarkWorkflow`.
     - Based on the `FaultWorkflow` environment variable (set on the launch profile), this will cause the `FaultingEvent` activity to throw an exception the first time through.
     - If running in Debug mode, resume on exception and let the workflow fault the activity.
     - After the first execution burst, the endpoint will create an alteration to reschedule the faulted activity. This time around the activity should succeed and the endpoint will return.
-3. Exercise the `http://localhost:5151/workflow/resume` api endpoint. This will...
+4. Exercise the `http://localhost:5151/workflow/resume` api endpoint. This will...
     - lookup the latest `WorkflowInstanceId` and `BookmarkId` and resume the workflow from the `FaultingEvent` activity.
     - the workflow will execute the rest of the sequence, i.e., "Step 1, Post Event" `Writeline` activity and then suspend itself without completing the workflow.
 
